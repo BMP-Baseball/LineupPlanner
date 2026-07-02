@@ -315,6 +315,47 @@
   }
   table.rotation option:disabled{color:#B7B0A0;}
 
+  /* POSTGAME */
+  .postgame-wrap{margin-top:26px;}
+  .postgame-grid{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;align-items:flex-end;}
+  .postgame-grid textarea{
+    width:100%;font-family:'Inter',sans-serif;font-size:13.5px;padding:10px 12px;
+    border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);
+    min-height:70px;resize:vertical;margin-top:12px;
+  }
+  .score-input{width:56px;}
+  .result-pill{
+    display:inline-block;font-family:'Oswald',sans-serif;font-weight:700;font-size:11px;
+    padding:4px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em;
+    margin-left:6px;vertical-align:middle;
+  }
+  .result-pill.W{background:var(--grass);color:#fff;}
+  .result-pill.L{background:var(--dirt);color:#fff;}
+  .result-pill.T{background:var(--ink-soft);color:#fff;}
+
+  /* SEASON REPORT */
+  .season-record{
+    display:flex;gap:18px;margin-bottom:22px;flex-wrap:wrap;
+  }
+  .season-stat{
+    background:var(--chalk-dim);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px;
+  }
+  .season-stat .num{font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;color:var(--grass-dark);display:block;}
+  .season-stat .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);}
+  table.season{border-collapse:collapse;width:100%;font-size:12.5px;}
+  table.season th, table.season td{border:1px solid var(--line);padding:8px 10px;text-align:center;}
+  table.season th{
+    background:var(--grass);color:#fff;font-family:'Oswald',sans-serif;font-weight:600;
+    text-transform:uppercase;letter-spacing:.03em;font-size:11px;
+  }
+  table.season td.pname{text-align:left;font-weight:600;}
+  table.season tr.low-variety td.pname{color:var(--dirt-dark);}
+  .variety-tag{
+    display:inline-block;font-size:9.5px;font-weight:700;background:var(--dirt);color:#fff;
+    padding:2px 6px;border-radius:4px;margin-left:6px;text-transform:uppercase;letter-spacing:.03em;
+  }
+  .season-table-wrap{overflow-x:auto;}
+
   /* PRINT CARD (built dynamically, screen-hidden) */
   #printArea{display:none;}
   .print-head{display:flex;align-items:center;gap:14px;border-bottom:3px solid #0B1D3A;padding-bottom:10px;margin-bottom:14px;}
@@ -382,6 +423,7 @@
     <button data-tab="roster" class="active">Roster</button>
     <button data-tab="schedule">Schedule</button>
     <button data-tab="lineup">Lineup &amp; Rotation</button>
+    <button data-tab="season">Season</button>
   </nav>
 
   <div class="card" id="tab-roster">
@@ -465,6 +507,14 @@
       </div>
 
       <div id="lineupContent"></div>
+    </div>
+  </div>
+
+  <div class="card" id="tab-season" style="display:none;">
+    <div class="card-inner">
+      <p class="section-title">Season Overview</p>
+      <p class="section-sub">Playing time, position variety, and results across every game you've planned so far.</p>
+      <div id="seasonContent"></div>
     </div>
   </div>
 
@@ -569,10 +619,11 @@ document.querySelectorAll('nav.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
-    ['roster','schedule','lineup'].forEach(t=>{
+    ['roster','schedule','lineup','season'].forEach(t=>{
       document.getElementById('tab-'+t).style.display = (t===btn.dataset.tab) ? 'block' : 'none';
     });
     if(btn.dataset.tab === 'lineup') renderLineupContent();
+    if(btn.dataset.tab === 'season') renderSeasonReport();
   });
 });
 
@@ -664,10 +715,14 @@ function renderSchedule(){
     const day = d.getDate();
     const li = document.createElement('li');
     li.className='game-item';
+    const gRec = state.games[g.id];
+    const resultBadge = (gRec && gRec.result)
+      ? `<span class="result-pill ${gRec.result}">${gRec.result}${(gRec.ourScore!=null && gRec.theirScore!=null) ? ' '+gRec.ourScore+'-'+gRec.theirScore : ''}</span>`
+      : '';
     li.innerHTML = `
       <div class="game-date-box"><div class="mo">${mo}</div><div class="d">${day}</div></div>
       <div class="meta">
-        <div class="opp">${g.ha} vs ${escapeHtml(g.opp)}</div>
+        <div class="opp">${g.ha} vs ${escapeHtml(g.opp)}${resultBadge}</div>
         <div class="sub">${g.time ? g.time + ' · ' : ''}${escapeHtml(g.loc || 'Location TBD')}</div>
       </div>
       <button class="btn btn-danger" data-id="${g.id}">Remove</button>
@@ -714,10 +769,14 @@ document.getElementById('inningsInput').addEventListener('change', async (e)=>{
 
 function ensureGameRecord(gameId){
   if(!state.games[gameId]){
-    state.games[gameId] = { order: state.roster.map(p=>p.id), innings: 6, rotation: {}, sitOuts: [], pitchCounts: {} };
+    state.games[gameId] = { order: state.roster.map(p=>p.id), innings: 6, rotation: {}, sitOuts: [], pitchCounts: {}, result: '', ourScore: null, theirScore: null, notes: '' };
   }
   if(!state.games[gameId].sitOuts) state.games[gameId].sitOuts = [];
   if(!state.games[gameId].pitchCounts) state.games[gameId].pitchCounts = {};
+  if(state.games[gameId].result === undefined) state.games[gameId].result = '';
+  if(state.games[gameId].ourScore === undefined) state.games[gameId].ourScore = null;
+  if(state.games[gameId].theirScore === undefined) state.games[gameId].theirScore = null;
+  if(state.games[gameId].notes === undefined) state.games[gameId].notes = '';
 }
 
 const PITCH_LIMIT = 30;
@@ -791,12 +850,150 @@ function renderLineupContent(){
       <p class="pitch-note">Enter pitches thrown this game for anyone who pitched. Daily totals add up across every game on the same date — anyone at ${PITCH_LIMIT}+ pitches for the day is grayed out in the Pitcher (P) column above.</p>
       <div class="pitch-grid" id="pitchGrid"></div>
     </div>
+    <div class="postgame-wrap">
+      <p class="section-title">Postgame</p>
+      <p class="pitch-note">Log the result and a quick note while it's fresh — this feeds your Season tab.</p>
+      <div class="postgame-grid">
+        <div class="field">
+          <label>Result</label>
+          <select id="pgResult">
+            <option value="">Not played yet</option>
+            <option value="W">Win</option>
+            <option value="L">Loss</option>
+            <option value="T">Tie</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Our score</label>
+          <input type="number" min="0" class="score-input" id="pgOurScore">
+        </div>
+        <div class="field">
+          <label>Their score</label>
+          <input type="number" min="0" class="score-input" id="pgTheirScore">
+        </div>
+      </div>
+      <textarea id="pgNotes" placeholder="e.g. Worked on two-strike approach, still chasing high pitches. Bullpen day for Jaxon next game."></textarea>
+    </div>
   `;
   renderAvailGrid();
   renderBattingList();
   renderRotationTable();
   renderEquity();
   renderPitchCounts();
+  renderPostgame();
+}
+
+function renderPostgame(){
+  const game = state.games[currentGameId];
+  const resultEl = document.getElementById('pgResult');
+  const ourEl = document.getElementById('pgOurScore');
+  const theirEl = document.getElementById('pgTheirScore');
+  const notesEl = document.getElementById('pgNotes');
+
+  resultEl.value = game.result || '';
+  ourEl.value = game.ourScore ?? '';
+  theirEl.value = game.theirScore ?? '';
+  notesEl.value = game.notes || '';
+
+  resultEl.onchange = async ()=>{ game.result = resultEl.value; await saveGames(); renderSchedule(); };
+  ourEl.onchange = async ()=>{ game.ourScore = ourEl.value === '' ? null : parseInt(ourEl.value,10); await saveGames(); renderSchedule(); };
+  theirEl.onchange = async ()=>{ game.theirScore = theirEl.value === '' ? null : parseInt(theirEl.value,10); await saveGames(); renderSchedule(); };
+  notesEl.onchange = async ()=>{ game.notes = notesEl.value; await saveGames(); };
+}
+
+function renderSeasonReport(){
+  const container = document.getElementById('seasonContent');
+
+  if(state.roster.length === 0){
+    container.innerHTML = '<div class="empty-note">Add players to your roster first.</div>';
+    return;
+  }
+  const gameIds = Object.keys(state.games);
+  if(gameIds.length === 0){
+    container.innerHTML = '<div class="empty-note">Plan at least one game in the Lineup &amp; Rotation tab to see season stats here.</div>';
+    return;
+  }
+
+  // ---- Season record ----
+  let w=0,l=0,t=0;
+  gameIds.forEach(gid=>{
+    const g = state.games[gid];
+    if(g.result==='W') w++;
+    else if(g.result==='L') l++;
+    else if(g.result==='T') t++;
+  });
+
+  // ---- Per-player aggregates ----
+  const stats = {};
+  state.roster.forEach(p=>{ stats[p.id] = {gp:0, inf:0, of:0, pitcher:0, bn:0, pitches:0, positions:new Set()}; });
+
+  gameIds.forEach(gid=>{
+    const g = state.games[gid];
+    const order = g.order || [];
+    order.forEach(pid=>{ if(stats[pid]) stats[pid].gp++; });
+
+    for(let i=0;i<g.innings;i++){
+      const assignments = (g.rotation && g.rotation[i]) || {};
+      const playing = new Set();
+      POSITIONS.forEach(pos=>{
+        const pid = assignments[pos.code];
+        if(pid && stats[pid]){
+          if(pos.code === 'P') stats[pid].pitcher++;
+          else if(pos.group === 'inf') stats[pid].inf++;
+          else stats[pid].of++;
+          stats[pid].positions.add(pos.code);
+          playing.add(pid);
+        }
+      });
+      order.forEach(pid=>{
+        if(!playing.has(pid) && stats[pid]) stats[pid].bn++;
+      });
+    }
+    if(g.pitchCounts){
+      Object.keys(g.pitchCounts).forEach(pid=>{
+        if(stats[pid]) stats[pid].pitches += Number(g.pitchCounts[pid]) || 0;
+      });
+    }
+  });
+
+  let recordHtml = `
+    <div class="season-record">
+      <div class="season-stat"><span class="num">${w}-${l}${t?'-'+t:''}</span><span class="lbl">Record</span></div>
+      <div class="season-stat"><span class="num">${gameIds.length}</span><span class="lbl">Games Planned</span></div>
+    </div>
+  `;
+
+  let rowsHtml = '';
+  state.roster.slice().sort((a,b)=>(a.num==='--'?999:+a.num)-(b.num==='--'?999:+b.num)).forEach(p=>{
+    const s = stats[p.id];
+    const varietyCount = s.positions.size;
+    const lowVariety = s.gp >= 3 && varietyCount <= 2;
+    rowsHtml += `
+      <tr class="${lowVariety ? 'low-variety' : ''}">
+        <td class="pname">${escapeHtml(p.name)}${lowVariety ? '<span class="variety-tag">Low variety</span>' : ''}</td>
+        <td>${s.gp}</td>
+        <td>${s.inf}</td>
+        <td>${s.of}</td>
+        <td>${s.pitcher}</td>
+        <td>${s.bn}</td>
+        <td>${s.pitches}</td>
+        <td>${varietyCount ? [...s.positions].join(', ') : '—'}</td>
+      </tr>
+    `;
+  });
+
+  container.innerHTML = recordHtml + `
+    <div class="season-table-wrap">
+      <table class="season">
+        <thead><tr>
+          <th style="text-align:left;">Player</th>
+          <th>GP</th><th>INF</th><th>OF</th><th>P</th><th>BN</th><th>Pitches</th>
+          <th style="text-align:left;">Positions Played</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderAvailGrid(){
