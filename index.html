@@ -282,6 +282,39 @@
   }
   table.rotation th.bnh{background:var(--ink-soft);color:#fff;}
 
+  /* PITCH COUNTS */
+  .pitch-wrap{margin-top:26px;}
+  .pitch-note{font-size:12px;color:var(--ink-soft);margin:2px 0 12px;}
+  .pitch-grid{display:flex;flex-direction:column;gap:6px;}
+  .pitch-row{
+    display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);
+    border-radius:6px;padding:7px 10px;
+  }
+  .pitch-row.near{border-color:var(--gold-light);background:#FFF8E8;}
+  .pitch-row.over{border-color:var(--dirt);background:#FBEAE7;}
+  .pitch-row .name{font-weight:600;font-size:13px;width:130px;flex-shrink:0;}
+  .pitch-row .pitch-input-wrap{display:flex;align-items:center;gap:6px;}
+  .pitch-row .pitch-input-wrap label{font-size:10.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;}
+  .pitch-row input[type=number]{
+    width:64px;padding:6px 8px;font-size:13px;border:1px solid var(--line);border-radius:5px;
+    text-align:center;
+  }
+  .pitch-row .pitch-total{
+    margin-left:auto;font-size:12px;color:var(--ink-soft);text-align:right;
+    display:flex;align-items:center;gap:8px;
+  }
+  .pitch-row .pitch-total b{color:var(--ink);font-size:13px;}
+  .pitch-badge{
+    font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+    padding:3px 8px;border-radius:999px;background:var(--chalk-dim);color:var(--ink-soft);
+  }
+  .pitch-row.near .pitch-badge{background:#F0C36A;color:#5C3E00;}
+  .pitch-row.over .pitch-badge{background:var(--dirt);color:#fff;}
+  table.rotation select.pitch-limited{
+    background:#FBEAE7;color:var(--dirt-dark);
+  }
+  table.rotation option:disabled{color:#B7B0A0;}
+
   /* PRINT CARD (built dynamically, screen-hidden) */
   #printArea{display:none;}
   .print-head{display:flex;align-items:center;gap:14px;border-bottom:3px solid #0B1D3A;padding-bottom:10px;margin-bottom:14px;}
@@ -681,9 +714,30 @@ document.getElementById('inningsInput').addEventListener('change', async (e)=>{
 
 function ensureGameRecord(gameId){
   if(!state.games[gameId]){
-    state.games[gameId] = { order: state.roster.map(p=>p.id), innings: 6, rotation: {}, sitOuts: [] };
+    state.games[gameId] = { order: state.roster.map(p=>p.id), innings: 6, rotation: {}, sitOuts: [], pitchCounts: {} };
   }
   if(!state.games[gameId].sitOuts) state.games[gameId].sitOuts = [];
+  if(!state.games[gameId].pitchCounts) state.games[gameId].pitchCounts = {};
+}
+
+const PITCH_LIMIT = 30;
+
+function getGameDate(gameId){
+  const info = state.schedule.find(g=>g.id===gameId);
+  return info ? info.date : null;
+}
+
+// Total pitches a player has thrown across every game sharing the same
+// calendar date (handles doubleheaders / tournament days with 2+ games).
+function dailyPitchTotal(playerId, dateStr){
+  if(!dateStr) return 0;
+  let total = 0;
+  Object.keys(state.games).forEach(gid=>{
+    if(getGameDate(gid) !== dateStr) return;
+    const g = state.games[gid];
+    if(g.pitchCounts && g.pitchCounts[playerId]) total += Number(g.pitchCounts[playerId]) || 0;
+  });
+  return total;
 }
 
 function renderLineupContent(){
@@ -732,11 +786,17 @@ function renderLineupContent(){
       </div>
       <div class="equity-grid" id="equityGrid"></div>
     </div>
+    <div class="pitch-wrap">
+      <p class="section-title">Pitch Counts</p>
+      <p class="pitch-note">Enter pitches thrown this game for anyone who pitched. Daily totals add up across every game on the same date — anyone at ${PITCH_LIMIT}+ pitches for the day is grayed out in the Pitcher (P) column above.</p>
+      <div class="pitch-grid" id="pitchGrid"></div>
+    </div>
   `;
   renderAvailGrid();
   renderBattingList();
   renderRotationTable();
   renderEquity();
+  renderPitchCounts();
 }
 
 function renderAvailGrid(){
@@ -765,6 +825,7 @@ function renderAvailGrid(){
       renderBattingList();
       renderRotationTable();
       renderEquity();
+      renderPitchCounts();
     });
     grid.appendChild(chip);
   });
@@ -838,6 +899,7 @@ function updateBenchCell(inning){
 
 function renderRotationTable(){
   const game = state.games[currentGameId];
+  const dateStr = getGameDate(currentGameId);
   const table = document.getElementById('rotationTable');
   let head = '<thead><tr><th>Inning</th>';
   POSITIONS.forEach(p=>{
@@ -852,13 +914,23 @@ function renderRotationTable(){
     body += `<tr><th>${i+1}</th>`;
     POSITIONS.forEach(pos=>{
       const assigned = game.rotation[i][pos.code] || '';
+      const isPitcherCol = pos.code === 'P';
       body += `<td><select data-inning="${i}" data-pos="${pos.code}">
         <option value="">—</option>
         ${game.order.map(pid=>{
           const p = playerById(pid);
           if(!p) return '';
           const sel = assigned===pid ? 'selected' : '';
-          return `<option value="${pid}" ${sel}>${p.num!=='--'?'#'+p.num+' ':''}${escapeHtml(p.name)}</option>`;
+          let label = `${p.num!=='--'?'#'+p.num+' ':''}${escapeHtml(p.name)}`;
+          let disabled = '';
+          if(isPitcherCol){
+            const total = dailyPitchTotal(pid, dateStr);
+            if(total >= PITCH_LIMIT){
+              label += ` (${total} today)`;
+              if(assigned!==pid) disabled = 'disabled';
+            }
+          }
+          return `<option value="${pid}" ${sel} ${disabled}>${label}</option>`;
         }).join('')}
       </select></td>`;
     });
@@ -878,11 +950,63 @@ function renderRotationTable(){
       else delete game.rotation[inning][pos];
       await saveGames();
       flagConflicts();
+      flagPitchLimits();
       updateBenchCell(inning);
       renderEquity();
     });
   });
   flagConflicts();
+  flagPitchLimits();
+}
+
+function flagPitchLimits(){
+  const game = state.games[currentGameId];
+  const dateStr = getGameDate(currentGameId);
+  const table = document.getElementById('rotationTable');
+  table.querySelectorAll('select[data-pos="P"]').forEach(sel=>{
+    const total = sel.value ? dailyPitchTotal(sel.value, dateStr) : 0;
+    sel.classList.toggle('pitch-limited', sel.value && total >= PITCH_LIMIT);
+  });
+}
+
+function renderPitchCounts(){
+  const game = state.games[currentGameId];
+  const dateStr = getGameDate(currentGameId);
+  const grid = document.getElementById('pitchGrid');
+  grid.innerHTML = '';
+  if(game.order.length === 0){
+    grid.innerHTML = '<div class="empty-note">No players available for this game.</div>';
+    return;
+  }
+  game.order.forEach(pid=>{
+    const p = playerById(pid);
+    if(!p) return;
+    const thisGame = Number(game.pitchCounts[pid] || 0);
+    const total = dailyPitchTotal(pid, dateStr);
+    const tier = total >= PITCH_LIMIT ? 'over' : (total >= PITCH_LIMIT - 5 ? 'near' : '');
+    const row = document.createElement('div');
+    row.className = 'pitch-row' + (tier ? ' ' + tier : '');
+    row.innerHTML = `
+      <div class="name">${escapeHtml(p.name)}</div>
+      <div class="pitch-input-wrap">
+        <label for="pitch-${pid}">This game</label>
+        <input type="number" id="pitch-${pid}" min="0" max="200" value="${thisGame || ''}" placeholder="0">
+      </div>
+      <div class="pitch-total">
+        Today: <b>${total}</b> / ${PITCH_LIMIT}
+        ${tier === 'over' ? '<span class="pitch-badge">Limit reached</span>' : tier === 'near' ? '<span class="pitch-badge">Approaching limit</span>' : ''}
+      </div>
+    `;
+    row.querySelector('input').addEventListener('change', async (e)=>{
+      const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+      if(val) game.pitchCounts[pid] = val;
+      else delete game.pitchCounts[pid];
+      await saveGames();
+      renderPitchCounts();
+      renderRotationTable();
+    });
+    grid.appendChild(row);
+  });
 }
 
 function flagConflicts(){
