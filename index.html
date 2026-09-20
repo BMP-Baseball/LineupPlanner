@@ -771,12 +771,18 @@ function ensureGameRecord(gameId){
   if(!state.games[gameId]){
     state.games[gameId] = { order: state.roster.map(p=>p.id), innings: 6, rotation: {}, sitOuts: [], pitchCounts: {}, result: '', ourScore: null, theirScore: null, notes: '' };
   }
-  if(!state.games[gameId].sitOuts) state.games[gameId].sitOuts = [];
-  if(!state.games[gameId].pitchCounts) state.games[gameId].pitchCounts = {};
-  if(state.games[gameId].result === undefined) state.games[gameId].result = '';
-  if(state.games[gameId].ourScore === undefined) state.games[gameId].ourScore = null;
-  if(state.games[gameId].theirScore === undefined) state.games[gameId].theirScore = null;
-  if(state.games[gameId].notes === undefined) state.games[gameId].notes = '';
+  const g = state.games[gameId];
+  // Firebase drops empty objects/arrays on save, so any of these can come
+  // back as undefined even though we always set them — rebuild them here.
+  if(!g.rotation || typeof g.rotation !== 'object') g.rotation = {};
+  if(!Array.isArray(g.order)) g.order = [];
+  if(!Array.isArray(g.sitOuts)) g.sitOuts = [];
+  if(!g.pitchCounts || typeof g.pitchCounts !== 'object') g.pitchCounts = {};
+  if(!g.innings) g.innings = 6;
+  if(g.result === undefined) g.result = '';
+  if(g.ourScore === undefined) g.ourScore = null;
+  if(g.theirScore === undefined) g.theirScore = null;
+  if(g.notes === undefined) g.notes = '';
 }
 
 const PITCH_LIMIT = 30;
