@@ -463,8 +463,8 @@
           <input type="date" id="gDate">
         </div>
         <div class="field">
-          <label>Time</label>
-          <input type="time" id="gTime">
+          <label>Time (24-hr)</label>
+          <input type="text" id="gTime" placeholder="e.g. 18:30" maxlength="5" style="width:80px;">
         </div>
         <div class="field" style="flex:1;min-width:140px;">
           <label>Opponent</label>
@@ -482,6 +482,7 @@
           <input type="text" id="gLoc" placeholder="Field / complex">
         </div>
         <button class="btn btn-primary" id="addGameBtn">Add Game</button>
+        <button class="btn btn-outline" id="cancelEditGameBtn" style="display:none;">Cancel</button>
       </div>
 
       <ul class="game-list" id="gameList"></ul>
@@ -687,21 +688,61 @@ function renderRoster(){
 }
 
 // ---------- SCHEDULE ----------
+let editingGameId = null;
+
+function normalizeTime24(raw){
+  const s = (raw||'').trim();
+  if(!s) return '';
+  const m = s.match(/^([0-2]?\d):([0-5]\d)$/);
+  if(!m) return s; // leave as-typed if it doesn't match; not fatal
+  let h = parseInt(m[1],10);
+  if(h>23) h=23;
+  return String(h).padStart(2,'0')+':'+m[2];
+}
+
+function resetScheduleForm(){
+  document.getElementById('gDate').value='';
+  document.getElementById('gTime').value='';
+  document.getElementById('gOpp').value='';
+  document.getElementById('gHA').value='Home';
+  document.getElementById('gLoc').value='';
+  editingGameId = null;
+  document.getElementById('addGameBtn').textContent = 'Add Game';
+  document.getElementById('cancelEditGameBtn').style.display = 'none';
+}
+
 document.getElementById('addGameBtn').addEventListener('click', async ()=>{
   const date = document.getElementById('gDate').value;
-  const time = document.getElementById('gTime').value;
+  const time = normalizeTime24(document.getElementById('gTime').value);
   const opp = document.getElementById('gOpp').value.trim();
   const ha = document.getElementById('gHA').value;
   const loc = document.getElementById('gLoc').value.trim();
   if(!date || !opp){ return; }
-  state.schedule.push({id:uid(), date, time, opp, ha, loc});
-  document.getElementById('gDate').value='';
-  document.getElementById('gTime').value='';
-  document.getElementById('gOpp').value='';
-  document.getElementById('gLoc').value='';
+
+  if(editingGameId){
+    const g = state.schedule.find(x=>x.id===editingGameId);
+    if(g){ g.date=date; g.time=time; g.opp=opp; g.ha=ha; g.loc=loc; }
+  } else {
+    state.schedule.push({id:uid(), date, time, opp, ha, loc});
+  }
+  resetScheduleForm();
   await saveSchedule();
   renderSchedule(); renderGameSelect();
 });
+
+document.getElementById('cancelEditGameBtn').addEventListener('click', resetScheduleForm);
+
+function beginEditGame(g){
+  editingGameId = g.id;
+  document.getElementById('gDate').value = g.date;
+  document.getElementById('gTime').value = g.time || '';
+  document.getElementById('gOpp').value = g.opp;
+  document.getElementById('gHA').value = g.ha;
+  document.getElementById('gLoc').value = g.loc || '';
+  document.getElementById('addGameBtn').textContent = 'Save Changes';
+  document.getElementById('cancelEditGameBtn').style.display = 'inline-block';
+  document.getElementById('gDate').scrollIntoView({behavior:'smooth', block:'center'});
+}
 
 function renderSchedule(){
   const list = document.getElementById('gameList');
@@ -725,11 +766,14 @@ function renderSchedule(){
         <div class="opp">${g.ha} vs ${escapeHtml(g.opp)}${resultBadge}</div>
         <div class="sub">${g.time ? g.time + ' · ' : ''}${escapeHtml(g.loc || 'Location TBD')}</div>
       </div>
-      <button class="btn btn-danger" data-id="${g.id}">Remove</button>
+      <button class="btn btn-outline btn-sm" data-id="${g.id}" data-action="edit">Edit</button>
+      <button class="btn btn-danger" data-id="${g.id}" data-action="remove">Remove</button>
     `;
-    li.querySelector('.btn-danger').addEventListener('click', async ()=>{
+    li.querySelector('[data-action="edit"]').addEventListener('click', ()=> beginEditGame(g));
+    li.querySelector('[data-action="remove"]').addEventListener('click', async ()=>{
       state.schedule = state.schedule.filter(x=>x.id!==g.id);
       delete state.games[g.id];
+      if(editingGameId===g.id) resetScheduleForm();
       await saveSchedule(); await saveGames();
       renderSchedule(); renderGameSelect();
     });
