@@ -445,6 +445,7 @@
           <div class="pos-check-group" id="pPositions"></div>
         </div>
         <button class="btn btn-primary" id="addPlayerBtn">Add Player</button>
+        <button class="btn btn-outline" id="cancelEditPlayerBtn" style="display:none;">Cancel</button>
       </div>
 
       <ul class="roster-list" id="rosterList"></ul>
@@ -629,12 +630,14 @@ document.querySelectorAll('nav.tabs button').forEach(btn=>{
 });
 
 // ---------- ROSTER ----------
+let editingPlayerId = null;
+
 function buildPosChips(){
   const wrap = document.getElementById('pPositions');
   wrap.innerHTML = '';
   POSITIONS.forEach(p=>{
     const chip = document.createElement('div');
-    chip.className = 'pos-chip';
+    chip.className = 'pos-chip' + (selectedPositions.has(p.code) ? ' on' : '');
     chip.textContent = p.code;
     chip.dataset.code = p.code;
     chip.addEventListener('click', ()=>{
@@ -646,22 +649,47 @@ function buildPosChips(){
 }
 buildPosChips();
 
+function resetPlayerForm(){
+  document.getElementById('pNum').value = '';
+  document.getElementById('pName').value = '';
+  selectedPositions = new Set();
+  buildPosChips();
+  editingPlayerId = null;
+  document.getElementById('addPlayerBtn').textContent = 'Add Player';
+  document.getElementById('cancelEditPlayerBtn').style.display = 'none';
+}
+
 document.getElementById('addPlayerBtn').addEventListener('click', async ()=>{
   const numEl = document.getElementById('pNum');
   const nameEl = document.getElementById('pName');
   const name = nameEl.value.trim();
   if(!name){ nameEl.focus(); return; }
-  state.roster.push({
-    id: uid(),
-    num: numEl.value ? numEl.value : '--',
-    name,
-    positions: Array.from(selectedPositions)
-  });
-  numEl.value=''; nameEl.value=''; selectedPositions = new Set();
-  buildPosChips();
+  const num = numEl.value ? numEl.value : '--';
+  const positions = Array.from(selectedPositions);
+
+  if(editingPlayerId){
+    const p = state.roster.find(x=>x.id===editingPlayerId);
+    if(p){ p.num = num; p.name = name; p.positions = positions; }
+  } else {
+    state.roster.push({ id: uid(), num, name, positions });
+  }
+  resetPlayerForm();
   await saveRoster();
   renderRoster(); renderGameSelect();
 });
+
+document.getElementById('cancelEditPlayerBtn').addEventListener('click', resetPlayerForm);
+
+function beginEditPlayer(p){
+  editingPlayerId = p.id;
+  document.getElementById('pNum').value = p.num === '--' ? '' : p.num;
+  document.getElementById('pName').value = p.name;
+  selectedPositions = new Set(p.positions || []);
+  buildPosChips();
+  document.getElementById('addPlayerBtn').textContent = 'Save Changes';
+  document.getElementById('cancelEditPlayerBtn').style.display = 'inline-block';
+  document.getElementById('pName').scrollIntoView({behavior:'smooth', block:'center'});
+}
 
 function renderRoster(){
   const list = document.getElementById('rosterList');
@@ -676,10 +704,13 @@ function renderRoster(){
       <div class="jersey">${p.num}</div>
       <div class="name">${escapeHtml(p.name)}</div>
       <div class="eligible">${p.positions.length ? p.positions.join(' · ') : 'No positions set'}</div>
-      <button class="btn btn-danger" data-id="${p.id}">Remove</button>
+      <button class="btn btn-outline btn-sm" data-id="${p.id}" data-action="edit">Edit</button>
+      <button class="btn btn-danger" data-id="${p.id}" data-action="remove">Remove</button>
     `;
-    li.querySelector('.btn-danger').addEventListener('click', async ()=>{
+    li.querySelector('[data-action="edit"]').addEventListener('click', ()=> beginEditPlayer(p));
+    li.querySelector('[data-action="remove"]').addEventListener('click', async ()=>{
       state.roster = state.roster.filter(x=>x.id!==p.id);
+      if(editingPlayerId===p.id) resetPlayerForm();
       await saveRoster();
       renderRoster(); renderGameSelect();
     });
